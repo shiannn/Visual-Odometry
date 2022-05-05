@@ -3,6 +3,7 @@ import numpy as np
 import cv2 as cv
 import sys, os, argparse, glob
 import multiprocessing as mp
+from local_feature import get_sift_correspondences
 
 class SimpleVO:
     def __init__(self, args):
@@ -36,10 +37,13 @@ class SimpleVO:
 
     def process_frames(self, queue):
         R, t = np.eye(3, dtype=np.float64), np.zeros((3, 1), dtype=np.float64)
+        img_pre = cv.imread(self.frame_paths[0])
         for frame_path in self.frame_paths[1:]:
             img = cv.imread(frame_path)
             #TODO: compute camera pose here
-            
+            points1, points2, kp1, kp2, good_matches = get_correspondences(img_pre, img, method='orb')
+            print(good_matches)
+            exit(0)
             queue.put((R, t))
              
             cv.imshow('frame', img)
