@@ -4,6 +4,7 @@ import cv2 as cv
 import sys, os, argparse, glob
 import multiprocessing as mp
 from local_feature import get_correspondences
+from plot_camera import plot_camera_object
 
 class SimpleVO:
     def __init__(self, args):
@@ -22,13 +23,18 @@ class SimpleVO:
         p.start()
         
         keep_running = True
+        cam_points = None
         while keep_running:
             try:
                 R, t = queue.get(block=False)
                 if R is not None:
                     #TODO:
                     # insert new camera pose here using vis.add_geometry()
-                    pass
+                    #print(R)
+                    #print(t)
+                    #print(cam_points)
+                    line_set, cam_points = plot_camera_object(cam_points, R,t)
+                    vis.add_geometry(line_set)
             except: pass
             
             keep_running = keep_running and vis.poll_events()
@@ -51,6 +57,22 @@ class SimpleVO:
         kp_array = np.array([kp.pt for kp in keypoints])
         return kp_array
 
+    def get_rescale_ratio(self, pre_points3D, points3D):
+        ### points3D (homogeneous) 4xN
+        # homogeneous to non-homogeneous
+        pre_points3D = pre_points3D.T / pre_points3D.T[:,3:]
+        points3D = points3D.T / points3D.T[:,3:]
+        sel = np.random.randint(low=0,high=pre_points3D.shape[0], size=2)
+        ### ratio
+        #print(pre_t, np.linalg.norm(pre_t,ord=2))
+        #print(t, np.linalg.norm(t,ord=2))
+        pre_sel_pts = pre_points3D[sel,:3]
+        sel_pts = points3D[sel,:3]
+        lower = np.linalg.norm(pre_sel_pts[0]-pre_sel_pts[1], ord=2)
+        upper = np.linalg.norm(sel_pts[0]-sel_pts[1], ord=2)
+        ratio = upper / lower
+        return ratio
+                
     def process_frames(self, queue):
         R, t = np.eye(3, dtype=np.float64), np.zeros((3, 1), dtype=np.float64)
         ### Intrinsic K 3x3
@@ -68,36 +90,41 @@ class SimpleVO:
             kp2 = self.kp2array(kp2)
 
             es_Mat, mask = cv.findEssentialMat(points1, points2, cameraMatrix=self.K)
-            print(es_Mat)
+            #print(es_Mat)
             _, R, t, _ = cv.recoverPose(es_Mat, points1, points2, cameraMatrix=self.K)
             
             match_pairs = np.array([[m.queryIdx, m.trainIdx] for m in good_matches])
-            print(match_pairs.shape)
-            if pre_kp1 is not None:
-                print(pre_kp1.shape)
-            if pre_kp2 is not None:
-                print(pre_kp2.shape)
+            #print(match_pairs.shape)
+
+            ### rescale t
             if pre_match_pairs is not None:
-                print(pre_match_pairs.shape)
-                print(pre_match_pairs.T)
-                print(match_pairs.T)
+                assert pre_kp1 is not None
+                assert pre_kp2 is not None
                 _, comm1, comm2 = np.intersect1d(pre_match_pairs[:,1], match_pairs[:,0], return_indices=True)
-                print(comm1)
-                print(comm2)
                 assert (comm1 < pre_match_pairs.shape[0]).all()
                 assert (comm2 < match_pairs.shape[0]).all()
-                print(pre_match_pairs[comm1], pre_match_pairs[comm1,0], pre_kp1.shape)
-                print(pre_kp1[pre_match_pairs[comm1,0]])
-                print(pre_kp2[pre_match_pairs[comm1,1]])
-                print(kp1[match_pairs[comm2,0]])
-                print(kp2[match_pairs[comm2,1]])
-                #print(match_pairs[comm2])
-            ### rescale t
-            points3D = self.reproject_3D(R, t, points1, points2)
-            ### points3D 3xN
+                assert (pre_match_pairs[comm1,1]==match_pairs[comm2,0]).all()
+                # print(pre_R)
+                # print(pre_t)
+                # print(pre_kp1[pre_match_pairs[comm1,0]])
+                # print(pre_kp2[pre_match_pairs[comm1,1]])
+                # pre_points3D = self.reproject_3D(
+                #     pre_R, pre_t, 
+                #     pre_kp1[pre_match_pairs[comm1,0]],
+                #     pre_kp2[pre_match_pairs[comm1,1]]
+                # )
+                # points3D = self.reproject_3D(
+                #     R, t, 
+                #     kp1[match_pairs[comm2,0]],
+                #     kp2[match_pairs[comm2,1]]
+                # )
+                # ratio = self.get_rescale_ratio(pre_points3D, points3D)
+                #t = t / np.linalg.norm(t, ord=2)
+                #assert np.linalg.norm(t, ord=2) == 1
+                #t = t* np.linalg.norm(pre_t, ord=2)* ratio
 
-            if idx == 3:
-                exit(0)
+            # if idx == 3:
+            #     exit(0)
             queue.put((R, t))
             
             pre_kp1 = kp1
