@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import open3d as o3d
 
-def get_camera(focal_len_scaled=0.5, aspect_ratio=0.3):
+def get_camera(focal_len_scaled=1.0, aspect_ratio=0.3):
     points = np.array([
         [0, 0, 0],
         [focal_len_scaled * aspect_ratio, -focal_len_scaled * aspect_ratio, focal_len_scaled],

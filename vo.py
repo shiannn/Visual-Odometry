@@ -117,12 +117,12 @@ class SimpleVO:
             kp01_pre, kp01_cur, good_matches01 = get_correspondences(pre_frame, cur_frame, method='orb')
             points01_pre, points01_cur = self.match2points(kp01_pre, kp01_cur, good_matches01)
             es_Mat01, mask01 = cv.findEssentialMat(points01_pre, points01_cur, cameraMatrix=self.K, method=cv.RANSAC)
-            _, R01, t01, _ = cv.recoverPose(es_Mat01, points01_pre[mask01.squeeze()==1], points01_cur[mask01.squeeze()==1], cameraMatrix=self.K)
+            _, R01, t01, _ = cv.recoverPose(es_Mat01, points01_pre, points01_cur, cameraMatrix=self.K)
 
             kp12_cur, kp12_pos, good_matches12 = get_correspondences(cur_frame, pos_frame, method='orb')
             points12_cur, points12_pos = self.match2points(kp12_cur, kp12_pos, good_matches12)
             es_Mat12, mask12 = cv.findEssentialMat(points12_cur, points12_pos, cameraMatrix=self.K, method=cv.RANSAC)
-            _, R12, t12, _ = cv.recoverPose(es_Mat12, points12_cur[mask12.squeeze()==1], points12_pos[mask12.squeeze()==1], cameraMatrix=self.K)
+            _, R12, t12, _ = cv.recoverPose(es_Mat12, points12_cur, points12_pos, cameraMatrix=self.K)
             
 
             ### rescale t
@@ -171,7 +171,7 @@ class SimpleVO:
             else:
                 ratio = 1
                 
-            print(ratio)
+            #print(ratio)
             ### accumulate scale
             dt = ratio* pre_norm* t12
             R = np.matmul(R12,R)
