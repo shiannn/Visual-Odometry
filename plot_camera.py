@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import open3d as o3d
 
-def get_camera(focal_len_scaled=0.5, aspect_ratio=0.3):
+def get_camera(focal_len_scaled=0.25, aspect_ratio=0.3):
     points = np.array([
         [0, 0, 0],
         [focal_len_scaled * aspect_ratio, -focal_len_scaled * aspect_ratio, focal_len_scaled],
@@ -12,11 +12,9 @@ def get_camera(focal_len_scaled=0.5, aspect_ratio=0.3):
     ])
     return points
 
-def plot_camera_object(points, Rotation_Mat, Translation, color=[1.0,0.,0.]):
-    if points is None:
-        print('get')
-        points = get_camera()
+def plot_camera_object(Rotation_Mat, Translation, color=[1.0,0.,0.]):
     #print(np.matmul(Rotation_Mat, points.T).T+Translation.T)
+    points = get_camera()
     points = np.matmul(Rotation_Mat, points.T).T + Translation.T
     
     #points = np.matmul(Rotation_Mat.T,(points-Translation).T).T

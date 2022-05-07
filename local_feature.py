@@ -20,12 +20,14 @@ def get_correspondences(img1, img2, method='orb'):
     kp1, des1 = ft_extractor.detectAndCompute(img1,None)
     kp2, des2 = ft_extractor.detectAndCompute(img2,None)
 
-    matcher = cv.BFMatcher()
-    matches = matcher.knnMatch(des1, des2, k=2)
+    matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
+    matches = matcher.match(des1, des2)
     good_matches = []
-    for m, n in matches:
-        if m.distance < 0.75 * n.distance:
-            good_matches.append(m)
+    for m in matches:
+        good_matches.append(m)
+    # for m, n in matches:
+    #     if m.distance < 0.95 * n.distance:
+    #         good_matches.append(m)
 
     good_matches = sorted(good_matches, key=lambda x: x.distance)
     points1 = np.array([kp1[m.queryIdx].pt for m in good_matches])

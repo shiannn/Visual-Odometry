@@ -1,5 +1,6 @@
 import open3d as o3d
 import numpy as np
+import scipy
 import cv2 as cv
 import sys, os, argparse, glob
 import multiprocessing as mp
@@ -23,7 +24,6 @@ class SimpleVO:
         p.start()
         
         keep_running = True
-        cam_points = None
         while keep_running:
             try:
                 R, t = queue.get(block=False)
@@ -32,8 +32,7 @@ class SimpleVO:
                     # insert new camera pose here using vis.add_geometry()
                     #print(R)
                     #print(t)
-                    #print(cam_points)
-                    line_set, cam_points = plot_camera_object(cam_points, R,t)
+                    line_set, _ = plot_camera_object(R,t)
                     vis.add_geometry(line_set)
             except: pass
             
@@ -41,101 +40,104 @@ class SimpleVO:
         vis.destroy_window()
         p.join()
 
-    def reproject_3D(self, R, t, points1_2D, points2_2D):
-        proj_Mat1 = np.concatenate((np.eye(3),np.zeros((3,1))), axis=1)
-        proj_Mat2 = np.concatenate((R,t), axis=1)
+    def reproject_3D(self, k, R, t, points1_2D, points2_2D):
+        extrinsic1 = np.concatenate((np.eye(3),np.zeros((3,1))), axis=1)
+        proj_Mat1 = np.matmul(k, extrinsic1)
+        extrinsic2 = np.concatenate((R,t), axis=1)
+        proj_Mat2 = np.matmul(k, extrinsic2)
         
-        points3D = cv.triangulatePoints(
+        points4D = cv.triangulatePoints(
             projMatr1=proj_Mat1,
             projMatr2=proj_Mat2,
             projPoints1=points1_2D.T,
             projPoints2=points2_2D.T    
         )
-        return points3D
+        #print(points4D.shape)
+        # homogeneous to non-homogeneous
+        points3D = points4D / points4D[3,:]
+        return points3D.T
 
     def kp2array(self, keypoints):
         kp_array = np.array([kp.pt for kp in keypoints])
         return kp_array
 
     def get_rescale_ratio(self, pre_points3D, points3D):
-        ### points3D (homogeneous) 4xN
-        # homogeneous to non-homogeneous
-        pre_points3D = pre_points3D.T / pre_points3D.T[:,3:]
-        points3D = points3D.T / points3D.T[:,3:]
-        sel = np.random.randint(low=0,high=pre_points3D.shape[0], size=2)
+        assert points3D.shape[1] == 4 and pre_points3D.shape[1] == 4
+        ### points3D (homogeneous) Nx4
+        min_idx = min(pre_points3D.shape[0], points3D.shape[0])
+        pre_points3D = pre_points3D[:min_idx]
+        points3D = points3D[:min_idx]
+        
+        #sel = np.random.randint(low=0,high=pre_points3D.shape[0], size=2)
         ### ratio
         #print(pre_t, np.linalg.norm(pre_t,ord=2))
         #print(t, np.linalg.norm(t,ord=2))
-        pre_sel_pts = pre_points3D[sel,:3]
-        sel_pts = points3D[sel,:3]
-        lower = np.linalg.norm(pre_sel_pts[0]-pre_sel_pts[1], ord=2)
-        upper = np.linalg.norm(sel_pts[0]-sel_pts[1], ord=2)
-        ratio = upper / lower
+        # print(pre_points3D.shape)
+        # print(points3D.shape)
+        pd3D_pre = scipy.spatial.distance.pdist(pre_points3D)
+        pd3D = scipy.spatial.distance.pdist(points3D)
+        #print(pd3D_pre.mean())
+        #print(pd3D.mean())
+        ratio = np.median(pd3D) / np.median(pd3D_pre)
+        #print(pd3D/pd3D_pre)
+        #ratio = np.median(pd3D/pd3D_pre)
+        
+        #ratio = np.median(pd3D) / np.median(pd3D_pre)
+        # pre_sel_pts = pre_points3D[sel,:3]
+        # sel_pts = points3D[sel,:3]
+        # lower = np.linalg.norm(pre_sel_pts[0]-pre_sel_pts[1], ord=2)
+        # upper = np.linalg.norm(sel_pts[0]-sel_pts[1], ord=2)
+        # ratio = upper / lower
         return ratio
                 
     def process_frames(self, queue):
         R, t = np.eye(3, dtype=np.float64), np.zeros((3, 1), dtype=np.float64)
         ### Intrinsic K 3x3
-        img_pre = cv.imread(self.frame_paths[0])
-        pre_kp1 = None
-        pre_kp2 = None
-        pre_match_pairs = None
-        pre_R = None
-        pre_t = None
-        for idx, frame_path in enumerate(self.frame_paths[1:], start=1):
-            img = cv.imread(frame_path)
-            #TODO: compute camera pose here
-            points1, points2, kp1, kp2, good_matches = get_correspondences(img_pre, img, method='orb')
-            kp1 = self.kp2array(kp1)
-            kp2 = self.kp2array(kp2)
+        #img_pre = cv.imread(self.frame_paths[0])
+        pre_norm = 1.0
+        for idx, _ in enumerate(self.frame_paths[1:], start=1):
+            pre_frame = cv.imread(self.frame_paths[idx-1])
+            cur_frame = cv.imread(self.frame_paths[idx])
+            pos_frame = cv.imread(self.frame_paths[idx+1])
 
-            es_Mat, mask = cv.findEssentialMat(points1, points2, cameraMatrix=self.K)
-            #print(es_Mat)
-            _, R, t, _ = cv.recoverPose(es_Mat, points1, points2, cameraMatrix=self.K)
+            #TODO: compute camera pose here
+            points01_pre, points01_cur, _, _, good_matches01 = get_correspondences(pre_frame, cur_frame, method='orb')
+            es_Mat01, mask01 = cv.findEssentialMat(points01_cur, points01_pre, cameraMatrix=self.K, method=cv.RANSAC)
+            _, R01, t01, _ = cv.recoverPose(es_Mat01, points01_cur, points01_pre, cameraMatrix=self.K)
+
+            points12_cur, points12_pos, _, _, good_matches12 = get_correspondences(cur_frame, pos_frame, method='orb')
+            es_Mat12, mask12 = cv.findEssentialMat(points12_cur, points12_pos, cameraMatrix=self.K, method=cv.RANSAC)
+            _, R12, t12, _ = cv.recoverPose(es_Mat12, points12_cur, points12_pos, cameraMatrix=self.K)
             
-            match_pairs = np.array([[m.queryIdx, m.trainIdx] for m in good_matches])
-            #print(match_pairs.shape)
+            #match_pairs = np.array([[m.queryIdx, m.trainIdx] for m in good_matches])
 
             ### rescale t
-            if pre_match_pairs is not None:
-                assert pre_kp1 is not None
-                assert pre_kp2 is not None
-                _, comm1, comm2 = np.intersect1d(pre_match_pairs[:,1], match_pairs[:,0], return_indices=True)
-                assert (comm1 < pre_match_pairs.shape[0]).all()
-                assert (comm2 < match_pairs.shape[0]).all()
-                assert (pre_match_pairs[comm1,1]==match_pairs[comm2,0]).all()
-                # print(pre_R)
-                # print(pre_t)
-                # print(pre_kp1[pre_match_pairs[comm1,0]])
-                # print(pre_kp2[pre_match_pairs[comm1,1]])
-                # pre_points3D = self.reproject_3D(
-                #     pre_R, pre_t, 
-                #     pre_kp1[pre_match_pairs[comm1,0]],
-                #     pre_kp2[pre_match_pairs[comm1,1]]
-                # )
-                # points3D = self.reproject_3D(
-                #     R, t, 
-                #     kp1[match_pairs[comm2,0]],
-                #     kp2[match_pairs[comm2,1]]
-                # )
-                # ratio = self.get_rescale_ratio(pre_points3D, points3D)
-                #t = t / np.linalg.norm(t, ord=2)
-                #assert np.linalg.norm(t, ord=2) == 1
-                #t = t* np.linalg.norm(pre_t, ord=2)* ratio
+            #ratio = 1.01 if np.random.rand() > 0.5 else 0.99
+            if True:
+                points3D01 = self.reproject_3D(
+                    self.K, R01, t01,
+                    points01_cur,
+                    points01_pre
+                )
 
-            # if idx == 3:
-            #     exit(0)
-            queue.put((R, t))
+                points3D12 = self.reproject_3D(
+                    self.K, R12, t12,
+                    points12_cur,
+                    points12_pos
+                )
+                ratio = self.get_rescale_ratio(points3D01, points3D12)    
+            print(ratio)
+            ### accumulate scale
+            dt = ratio* pre_norm* t12
+            R = np.matmul(R12,R)
+            t = np.matmul(R12, t) + dt
             
-            pre_kp1 = kp1
-            pre_kp2 = kp2
-            pre_match_pairs = match_pairs
-            pre_R = R
-            pre_t = t
+            queue.put((R, t))
+
+            img = cur_frame
+            pre_norm = np.linalg.norm(dt, ord=2)
             cv.imshow('frame', img)
             if cv.waitKey(30) == 27: break
-
-            img_pre = img
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
