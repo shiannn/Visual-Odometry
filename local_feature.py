@@ -10,6 +10,9 @@ def get_correspondences(img1, img2, method='orb'):
         points1: numpy array [N, 2], N is the number of correspondences
         points2: numpy array [N, 2], N is the number of correspondences
     '''
+    img1 = cv.cvtColor(img1, cv.COLOR_BGR2GRAY)
+    img2 = cv.cvtColor(img2, cv.COLOR_BGR2GRAY)
+
     if method == 'orb':
         ft_extractor = cv.ORB_create()
     elif method == 'sift':
@@ -22,18 +25,16 @@ def get_correspondences(img1, img2, method='orb'):
 
     matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
     matches = matcher.match(des1, des2)
-    good_matches = []
-    for m in matches:
-        good_matches.append(m)
-    # for m, n in matches:
-    #     if m.distance < 0.95 * n.distance:
-    #         good_matches.append(m)
+    good_matches = sorted(matches, key=lambda x: x.distance)
 
-    good_matches = sorted(good_matches, key=lambda x: x.distance)
-    points1 = np.array([kp1[m.queryIdx].pt for m in good_matches])
-    points2 = np.array([kp2[m.trainIdx].pt for m in good_matches])
+    kp1 = kp2array(kp1)
+    kp2 = kp2array(kp2)
     
-    return points1, points2, kp1, kp2, good_matches
+    return kp1, kp2, good_matches
+
+def kp2array(keypoints):
+    kp_array = np.array([kp.pt for kp in keypoints])
+    return kp_array
 
 def get_orb_correspondences(img1, img2):
     orb = cv.ORB_create()

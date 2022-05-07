@@ -32,8 +32,6 @@ class SimpleVO:
                 if R is not None:
                     #TODO:
                     # insert new camera pose here using vis.add_geometry()
-                    #print(R)
-                    #print(t)
                     line_set, _ = plot_camera_object(R,t)
                     vis.add_geometry(line_set)
             except: pass
@@ -59,9 +57,11 @@ class SimpleVO:
         points3D = points4D / points4D[3,:]
         return points3D.T
 
-    def kp2array(self, keypoints):
-        kp_array = np.array([kp.pt for kp in keypoints])
-        return kp_array
+    def match2points(self, kp1, kp2, good_matches):
+        points1 = np.array([kp1[m.queryIdx] for m in good_matches])
+        points2 = np.array([kp2[m.trainIdx] for m in good_matches])
+
+        return points1, points2
 
     def get_rescale_ratio(self, pre_points3D, points3D):
         assert points3D.shape[1] == 4 and pre_points3D.shape[1] == 4
@@ -100,7 +100,7 @@ class SimpleVO:
         # print(pd3D)
         # print(pd3D / pd3D_pre)
         #ratio = np.median(pd3D / pd3D_pre)
-        ratio = np.median(pd3D) / np.median(pd3D_pre)
+        ratio = np.median(pd3D / pd3D_pre)
         return ratio
 
     def process_frames(self, queue):
@@ -114,13 +114,15 @@ class SimpleVO:
             pos_frame = cv.imread(self.frame_paths[idx+1])
 
             #TODO: compute camera pose here
-            points01_pre, points01_cur, kp01_pre, kp01_cur, good_matches01 = get_correspondences(pre_frame, cur_frame, method='orb')
-            es_Mat01, mask01 = cv.findEssentialMat(points01_cur, points01_pre, cameraMatrix=self.K, method=cv.RANSAC)
-            _, R01, t01, _ = cv.recoverPose(es_Mat01, points01_cur, points01_pre, cameraMatrix=self.K)
+            kp01_pre, kp01_cur, good_matches01 = get_correspondences(pre_frame, cur_frame, method='orb')
+            points01_pre, points01_cur = self.match2points(kp01_pre, kp01_cur, good_matches01)
+            es_Mat01, mask01 = cv.findEssentialMat(points01_pre, points01_cur, cameraMatrix=self.K, method=cv.RANSAC)
+            _, R01, t01, _ = cv.recoverPose(es_Mat01, points01_pre[mask01.squeeze()==1], points01_cur[mask01.squeeze()==1], cameraMatrix=self.K)
 
-            points12_cur, points12_pos, kp12_cur, kp12_pos, good_matches12 = get_correspondences(cur_frame, pos_frame, method='orb')
+            kp12_cur, kp12_pos, good_matches12 = get_correspondences(cur_frame, pos_frame, method='orb')
+            points12_cur, points12_pos = self.match2points(kp12_cur, kp12_pos, good_matches12)
             es_Mat12, mask12 = cv.findEssentialMat(points12_cur, points12_pos, cameraMatrix=self.K, method=cv.RANSAC)
-            _, R12, t12, _ = cv.recoverPose(es_Mat12, points12_cur, points12_pos, cameraMatrix=self.K)
+            _, R12, t12, _ = cv.recoverPose(es_Mat12, points12_cur[mask12.squeeze()==1], points12_pos[mask12.squeeze()==1], cameraMatrix=self.K)
             
 
             ### rescale t
@@ -141,26 +143,40 @@ class SimpleVO:
                 match_pairs01 = np.array([[m.queryIdx, m.trainIdx] for m in good_matches01])
                 match_pairs12 = np.array([[m.queryIdx, m.trainIdx] for m in good_matches12])
                 
-                inter_match, _, _ = np.intersect1d(match_pairs01[:,1], match_pairs12[:,0], return_indices=True)
-                assert inter_match.shape[0] > 0
-                kp01_pre = self.kp2array(kp01_pre)
-                kp01_cur = self.kp2array(kp01_cur)
+                # match_pairs01 = match_pairs01[mask01.squeeze()==1]
+                # match_pairs12 = match_pairs12[mask12.squeeze()==1]
                 
-                kp12_cur = self.kp2array(kp12_cur)
-                kp12_pos = self.kp2array(kp12_pos)
+                inter_match, comm01, comm12 = np.intersect1d(match_pairs01[:,1], match_pairs12[:,0], return_indices=True)
+                assert inter_match.shape[0] > 0
+                # print(match_pairs01.shape)
+                # print(match_pairs01[comm01])
+                # print(match_pairs12[comm12])
+                fr01_pre = kp01_pre[match_pairs01[comm01,0]]
+                fr01_cur = kp01_cur[match_pairs01[comm01,1]]
+                fr12_cur = kp12_cur[match_pairs12[comm12,0]]
+                fr12_pos = kp12_pos[match_pairs12[comm12,1]]
+                print(fr01_pre.shape, fr12_pos.shape)
+                
+                # kp01_pre = self.kp2array(kp01_pre)
+                # kp01_cur = self.kp2array(kp01_cur)
+                
+                # kp12_cur = self.kp2array(kp12_cur)
+                # kp12_pos = self.kp2array(kp12_pos)
 
-                point3D01 = self.reproject_3D(self.K, R01, t01, kp01_cur[inter_match], kp01_pre[inter_match])
-                point3D12 = self.reproject_3D(self.K, R12, t12, kp12_cur[inter_match], kp12_pos[inter_match])
+                point3D01 = self.reproject_3D(self.K, R01, t01, fr01_pre, fr01_cur)
+                point3D12 = self.reproject_3D(self.K, R12, t12, fr12_cur, fr12_pos)
                 # print(point3D01.shape)
                 # print(point3D12.shape)
                 ratio = self.get_rescale_ratio_correspond(point3D01, point3D12)
+            else:
+                ratio = 1
                 
             print(ratio)
             ### accumulate scale
             dt = ratio* pre_norm* t12
             R = np.matmul(R12,R)
             t = np.matmul(R12, t) + dt
-            
+
             queue.put((R, t))
 
             img = cur_frame
