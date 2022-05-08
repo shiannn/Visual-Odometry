@@ -30,7 +30,7 @@ def get_correspondences(img1, img2, method='orb'):
     kp1 = kp2array(kp1)
     kp2 = kp2array(kp2)
     
-    return kp1, kp2, good_matches
+    return kp1, des1, kp2, des2, good_matches
 
 def kp2array(keypoints):
     kp_array = np.array([kp.pt for kp in keypoints])

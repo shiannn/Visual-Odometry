@@ -6,6 +6,7 @@ import sys, os, argparse, glob
 import multiprocessing as mp
 from local_feature import get_correspondences
 from plot_camera import plot_camera_object
+from loop_detector import LoopDetector
 
 class SimpleVO:
     def __init__(self, args):
@@ -16,6 +17,7 @@ class SimpleVO:
         self.frame_paths = sorted(list(glob.glob(os.path.join(args.input, '*.png'))))
 
         self.args = args
+        self.loop_detector = LoopDetector(dictionary_size = 450, threshold=0.76)
 
     def run(self):
         vis = o3d.visualization.Visualizer()
@@ -47,6 +49,24 @@ class SimpleVO:
         mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
         R = mesh.get_rotation_matrix_from_xyz((1.1*np.pi, np.pi/16, 0))
         return R
+    
+    def write_text(self, img):
+        font = cv.FONT_HERSHEY_SIMPLEX
+        bottomLeftCornerOfText = (10,img.shape[0]-30)
+        fontScale              = 1
+        fontColor              = (255,255,255)
+        thickness              = 1
+        lineType               = 2
+
+        img = cv.putText(img,"It's Loop!", 
+            bottomLeftCornerOfText, 
+            font, 
+            fontScale,
+            fontColor,
+            thickness,
+            lineType
+        )
+        return img
         
     def reproject_3D(self, k, R, t, points1_2D, points2_2D):
         extrinsic1 = np.concatenate((np.eye(3),np.zeros((3,1))), axis=1)
@@ -116,18 +136,31 @@ class SimpleVO:
         ### Intrinsic K 3x3
         #img_pre = cv.imread(self.frame_paths[0])
         pre_norm = 1.0
+        is_already_loop = False
         for idx, _ in enumerate(self.frame_paths[1:-1], start=1):
             pre_frame = cv.imread(self.frame_paths[idx-1])
             cur_frame = cv.imread(self.frame_paths[idx])
             pos_frame = cv.imread(self.frame_paths[idx+1])
 
             #TODO: compute camera pose here
-            kp01_pre, kp01_cur, good_matches01 = get_correspondences(pre_frame, cur_frame, method='orb')
+            kp01_pre, des01_pre, kp01_cur, des01_cur, good_matches01 = get_correspondences(pre_frame, cur_frame, method='orb')
             points01_pre, points01_cur = self.match2points(kp01_pre, kp01_cur, good_matches01)
             es_Mat01, mask01 = cv.findEssentialMat(points01_pre, points01_cur, cameraMatrix=self.K, method=cv.RANSAC)
             _, R01, t01, _ = cv.recoverPose(es_Mat01, points01_pre, points01_cur, cameraMatrix=self.K)
+            
+            if idx == 1:
+                ### init loop detector
+                self.loop_detector.init_dictionary(des01_pre)
+            else:
+                ### extract feature
+                feat01_cur = self.loop_detector.extract_feature(des01_cur)
+                pdist, is_loop = self.loop_detector.detect(feat01_cur)
+                self.loop_detector.add2history(feat01_cur)
+                #print(pdist, is_loop)
+                print(pdist, is_loop)
+                is_already_loop = is_already_loop or is_loop
 
-            kp12_cur, kp12_pos, good_matches12 = get_correspondences(cur_frame, pos_frame, method='orb')
+            kp12_cur, des12_cur, kp12_pos, des12_pos, good_matches12 = get_correspondences(cur_frame, pos_frame, method='orb')
             points12_cur, points12_pos = self.match2points(kp12_cur, kp12_pos, good_matches12)
             es_Mat12, mask12 = cv.findEssentialMat(points12_cur, points12_pos, cameraMatrix=self.K, method=cv.RANSAC)
             _, R12, t12, _ = cv.recoverPose(es_Mat12, points12_cur, points12_pos, cameraMatrix=self.K)
@@ -194,6 +227,9 @@ class SimpleVO:
             img[kp01_cur[:,1].astype(int), kp01_cur[:,0].astype(int)-1] = np.array([0,255,0])
             img[kp01_cur[:,1].astype(int), kp01_cur[:,0].astype(int)+1] = np.array([0,255,0])
             pre_norm = np.linalg.norm(dt, ord=2)
+
+            if is_already_loop:
+                img = self.write_text(img)
             cv.imshow('frame', img)
             if cv.waitKey(30) == 27: break
 
