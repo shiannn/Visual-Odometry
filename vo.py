@@ -21,6 +21,8 @@ class SimpleVO:
         vis = o3d.visualization.Visualizer()
         vis.create_window()
         
+        vis_R = self.get_vis_R()
+        
         queue = mp.Queue()
         p = mp.Process(target=self.process_frames, args=(queue, ))
         p.start()
@@ -33,6 +35,7 @@ class SimpleVO:
                     #TODO:
                     # insert new camera pose here using vis.add_geometry()
                     line_set, _ = plot_camera_object(R,t)
+                    line_set.rotate(vis_R, center=(0, 0, 0))
                     vis.add_geometry(line_set)
             except: pass
             
@@ -40,6 +43,11 @@ class SimpleVO:
         vis.destroy_window()
         p.join()
 
+    def get_vis_R(self):
+        mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
+        R = mesh.get_rotation_matrix_from_xyz((1.1*np.pi, np.pi/16, 0))
+        return R
+        
     def reproject_3D(self, k, R, t, points1_2D, points2_2D):
         extrinsic1 = np.concatenate((np.eye(3),np.zeros((3,1))), axis=1)
         proj_Mat1 = np.matmul(k, extrinsic1)
