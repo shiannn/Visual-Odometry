@@ -157,7 +157,7 @@ class SimpleVO:
                 pdist, is_loop = self.loop_detector.detect(feat01_cur)
                 self.loop_detector.add2history(feat01_cur)
                 #print(pdist, is_loop)
-                print(pdist, is_loop)
+                #print(pdist, is_loop)
                 is_already_loop = is_already_loop or is_loop
 
             kp12_cur, des12_cur, kp12_pos, des12_pos, good_matches12 = get_correspondences(cur_frame, pos_frame, method='orb')
@@ -221,11 +221,12 @@ class SimpleVO:
             queue.put((R, t))
 
             img = cur_frame
-            img[kp01_cur[:,1].astype(int), kp01_cur[:,0].astype(int)] = np.array([0,255,0])
-            img[kp01_cur[:,1].astype(int)-1, kp01_cur[:,0].astype(int)] = np.array([0,255,0])
-            img[kp01_cur[:,1].astype(int)+1, kp01_cur[:,0].astype(int)] = np.array([0,255,0])
-            img[kp01_cur[:,1].astype(int), kp01_cur[:,0].astype(int)-1] = np.array([0,255,0])
-            img[kp01_cur[:,1].astype(int), kp01_cur[:,0].astype(int)+1] = np.array([0,255,0])
+            vis_kp = kp01_cur[[m.trainIdx for m in good_matches01]]
+            img[vis_kp[:,1].astype(int), vis_kp[:,0].astype(int)] = np.array([0,255,0])
+            img[vis_kp[:,1].astype(int)-1, vis_kp[:,0].astype(int)] = np.array([0,255,0])
+            img[vis_kp[:,1].astype(int)+1, vis_kp[:,0].astype(int)] = np.array([0,255,0])
+            img[vis_kp[:,1].astype(int), vis_kp[:,0].astype(int)-1] = np.array([0,255,0])
+            img[vis_kp[:,1].astype(int), vis_kp[:,0].astype(int)+1] = np.array([0,255,0])
             pre_norm = np.linalg.norm(dt, ord=2)
 
             if is_already_loop:
